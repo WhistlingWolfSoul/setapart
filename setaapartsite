@@ -1,0 +1,336 @@
+import React, { useState, useEffect } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, doc, setDoc } from 'firebase/firestore';
+
+// Main App component for the two-part quiz application with Firebase integration.
+const App = () => {
+  // Define questions for the first quiz: "Am I Set Apart?"
+  const setApartQuestions = [
+    {
+      question: "Do you often feel a deep sense that you have a purpose greater than yourself?",
+      answers: [
+        { text: "Yes, this feeling is a strong guiding force in my life.", score: 5 },
+        { text: "Sometimes, but I'm still figuring out what it is.", score: 3 },
+        { text: "Not really, I feel my purpose is to live a fulfilling personal life.", score: 1 },
+      ],
+    },
+    {
+      question: "How do you view adversity and challenges in your life?",
+      answers: [
+        { text: "They are tests or trials meant to help me grow and become stronger.", score: 5 },
+        { text: "They are difficult to deal with, but I get through them.", score: 3 },
+        { text: "I often feel overwhelmed and drained by them.", score: 1 },
+      ],
+    },
+    {
+      question: "Do you often feel like you see the world differently from most people?",
+      answers: [
+        { text: "Yes, I have a unique perspective and feel like an observer.", score: 5 },
+        { text: "Sometimes, I have my own thoughts but largely see things the same.", score: 3 },
+        { text: "No, I generally feel I fit in with the common perspective.", score: 1 },
+      ],
+    },
+  ];
+
+  // Define questions for the second quiz: "Earth Angel or Chosen One?"
+  const archetypeQuestions = [
+    {
+      question: "When faced with a significant problem, what is your first instinct?",
+      answers: [
+        { text: "To take charge and work toward a powerful, decisive solution.", archetype: "Chosen One" },
+        { text: "To offer comfort and support to those who are suffering.", archetype: "Earth Angel" },
+        { text: "To seek wisdom and guidance to understand the situation fully.", archetype: "Neutral" },
+      ],
+    },
+    {
+      question: "How do you feel about personal hardships and adversity?",
+      answers: [
+        { text: "I see them as tests that are meant to make me stronger.", archetype: "Chosen One" },
+        { text: "They cause me deep pain, and I feel a strong desire to alleviate suffering.", archetype: "Earth Angel" },
+        { text: "I try to learn from them, but they are difficult to endure.", archetype: "Neutral" },
+      ],
+    },
+    {
+      question: "In a group setting, what is your most natural role?",
+      answers: [
+        { text: "Leading the group toward a specific goal.", archetype: "Chosen One" },
+        { text: "Listening to others and providing a sense of harmony.", archetype: "Earth Angel" },
+        { text: "I prefer to observe and contribute when necessary.", archetype: "Neutral" },
+      ],
+    },
+    {
+      question: "Do you often feel like you have a pre-ordained destiny or a fated mission?",
+      answers: [
+        { text: "Yes, I feel a powerful, external calling that guides my life.", archetype: "Chosen One" },
+        { text: "I feel a profound inner desire to help, but not a specific, fated mission.", archetype: "Earth Angel" },
+        { text: "No, my path feels like it's a result of my choices.", archetype: "Neutral" },
+      ],
+    },
+    {
+      question: "When you hear about a crisis, what's your initial reaction?",
+      answers: [
+        { text: "To feel a sense of urgency to take action and find a solution.", archetype: "Chosen One" },
+        { text: "To feel immense empathy and a desire to heal the pain.", archetype: "Earth Angel" },
+        { text: "I feel concerned, but I don't feel a personal compulsion to act.", archetype: "Neutral" },
+      ],
+    },
+  ];
+
+  // State variables to manage the quiz's progress and scores.
+  const [quizStage, setQuizStage] = useState('intro');
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [setApartScore, setSetApartScore] = useState(0);
+  const [chosenOneScore, setChosenOneScore] = useState(0);
+  const [earthAngelScore, setEarthAngelScore] = useState(0);
+  const [zangiNumber, setZangiNumber] = useState('');
+  const [motivation, setMotivation] = useState('');
+  const [formSubmitted, setFormSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [firebaseInitialized, setFirebaseInitialized] = useState(false);
+  const [userId, setUserId] = useState(null);
+
+  // Threshold for being considered "Set Apart"
+  const setApartThreshold = 10;
+
+  // Initialize Firebase and handle authentication
+  useEffect(() => {
+    try {
+      const firebaseConfig = JSON.parse(
+        typeof __firebase_config !== 'undefined' ? __firebase_config : '{}'
+      );
+      const app = initializeApp(firebaseConfig);
+      const auth = getAuth(app);
+      const db = getFirestore(app);
+
+      // Handle authentication with the provided custom token or sign in anonymously.
+      const signIn = async () => {
+        try {
+          if (typeof __initial_auth_token !== 'undefined') {
+            await signInWithCustomToken(auth, __initial_auth_token);
+          } else {
+            await signInAnonymously(auth);
+          }
+        } catch (error) {
+          console.error("Firebase sign-in failed:", error);
+        }
+      };
+
+      signIn();
+
+      // Set up an auth state change listener to get the userId.
+      onAuthStateChanged(auth, (user) => {
+        if (user) {
+          setUserId(user.uid);
+          setFirebaseInitialized(true);
+        }
+      });
+    } catch (error) {
+      console.error("Firebase initialization failed:", error);
+    }
+  }, []);
+
+  // Handles a user's answer selection for the first quiz.
+  const handleSetApartAnswer = (score) => {
+    setSetApartScore(prevScore => prevScore + score);
+    const nextQuestionIndex = currentQuestionIndex + 1;
+    if (nextQuestionIndex < setApartQuestions.length) {
+      setCurrentQuestionIndex(nextQuestionIndex);
+    } else {
+      // Quiz 1 is finished. Check if they are 'Set Apart'.
+      if ((setApartScore + score) >= setApartThreshold) {
+        setQuizStage('archetypeQuiz');
+        setCurrentQuestionIndex(0); // Reset for the next quiz
+      } else {
+        setQuizStage('result');
+      }
+    }
+  };
+
+  // Handles a user's answer selection for the second quiz.
+  const handleArchetypeAnswer = (archetype) => {
+    if (archetype === "Chosen One") {
+      setChosenOneScore(prevScore => prevScore + 1);
+    } else if (archetype === "Earth Angel") {
+      setEarthAngelScore(prevScore => prevScore + 1);
+    }
+    const nextQuestionIndex = currentQuestionIndex + 1;
+    if (nextQuestionIndex < archetypeQuestions.length) {
+      setCurrentQuestionIndex(nextQuestionIndex);
+    } else {
+      // Quiz 2 is finished. Go to results.
+      setQuizStage('result');
+    }
+  };
+
+  // Renders the questions and answers for the current quiz.
+  const renderQuiz = (questions, handleAnswer) => (
+    <div className="space-y-6">
+      <div className="p-4 sm:p-6 bg-purple-50 rounded-lg">
+        <h3 className="text-xl sm:text-2xl font-semibold text-gray-800">
+          {questions[currentQuestionIndex].question}
+        </h3>
+      </div>
+      <div className="space-y-4">
+        {questions[currentQuestionIndex].answers.map((answer, index) => (
+          <button
+            key={index}
+            onClick={() => handleAnswer(answer.score || answer.archetype)}
+            className="w-full text-left p-4 rounded-lg bg-gray-50 hover:bg-purple-100 transition-colors duration-200 border border-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2"
+          >
+            <p className="text-base text-gray-700">{answer.text}</p>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  // Handles form submission and saves data to Firestore.
+  const handleFormSubmit = async (e) => {
+    e.preventDefault();
+    if (!firebaseInitialized || !userId) {
+      console.error("Firebase not initialized or user not authenticated.");
+      return;
+    }
+    
+    setIsSubmitting(true);
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    const db = getFirestore(initializeApp(JSON.parse(__firebase_config)));
+
+    try {
+      // Save the form data to a private collection for the user.
+      const userDocRef = doc(db, `artifacts/${appId}/users/${userId}/submissions`, new Date().toISOString());
+      await setDoc(userDocRef, {
+        zangiNumber: zangiNumber,
+        motivation: motivation,
+        archetypeScore: {
+          chosenOne: chosenOneScore,
+          earthAngel: earthAngelScore
+        },
+        timestamp: new Date()
+      });
+      setFormSubmitted(true);
+    } catch (error) {
+      console.error("Error submitting form to Firestore:", error);
+      // You could add an error message to the UI here.
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Renders the final result of the quiz flow.
+  const renderResult = () => {
+    let resultTitle = "";
+    let resultMessage = "";
+    let showFormSection = false;
+
+    if (setApartScore < setApartThreshold) {
+      resultTitle = "Your Path is Still Forming";
+      resultMessage = "Based on your answers, you may not yet align with the specific characteristics of a 'Set Apart' soul. Your spiritual journey is your own, and there is great potential for self-discovery and growth.";
+    } else if (chosenOneScore > earthAngelScore) {
+      resultTitle = "Your Soul's Path is That of a Chosen One";
+      resultMessage = "You resonate with the archetype of the Chosen One. Your path is defined by a sense of grand purpose and a powerful drive to overcome adversity. Your strengths lie in your resilience, leadership, and unwavering focus on your ultimate destiny.";
+      showFormSection = true;
+    } else if (earthAngelScore > chosenOneScore) {
+      resultTitle = "Your Soul's Path is That of an Earth Angel";
+      resultMessage = "You align with the archetype of the Earth Angel. Your core purpose is to spread light, love, and healing to those around you. Your strengths are in your profound empathy, nurturing spirit, and a deep, intrinsic need to serve others.";
+      showFormSection = true;
+    } else {
+      resultTitle = "Your Soul's Path is a Unique Blend";
+      resultMessage = "Your responses suggest a beautiful balance of both archetypes. You possess the inner strength and resilience of a Chosen One, while also being guided by the compassion and nurturing spirit of an Earth Angel.";
+    }
+
+    return (
+      <div className="text-center p-4">
+        <h2 className="text-3xl font-bold text-gray-800 mb-2">{resultTitle}</h2>
+        <p className="text-lg text-gray-600 leading-relaxed max-w-lg mx-auto">{resultMessage}</p>
+        
+        {showFormSection && (
+          <div className="mt-12 text-left bg-gray-50 p-6 rounded-xl shadow-inner border border-gray-200">
+            <h3 className="text-2xl font-bold text-gray-800 mb-4">You may be one of us.</h3>
+            <p className="text-gray-700 mb-4">
+              Souls who have made it to this stage of identification and confirmation by other Souls who have no place to do so should register for Zangi Messenger and submit their unique Zangi number and a short motivation as to why they belong in this exclusive and in anonymous group. That allows for exchanges between those that are set Apart.
+            </p>
+            {formSubmitted ? (
+              <p className="text-green-600 font-semibold text-center py-4">
+                Submission successful! We will review your motivation shortly.
+              </p>
+            ) : (
+              <form onSubmit={handleFormSubmit} className="space-y-4">
+                <div>
+                  <label htmlFor="zangiNumber" className="block text-sm font-medium text-gray-700">Zangi Number</label>
+                  <input
+                    type="text"
+                    id="zangiNumber"
+                    value={zangiNumber}
+                    onChange={(e) => setZangiNumber(e.target.value)}
+                    className="mt-1 block w-full p-3 border border-gray-300 rounded-md shadow-sm focus:ring-purple-500 focus:border-purple-500"
+                    required
+                  />
+                </div>
+                <div>
+                  <label htmlFor="motivation" className="block text-sm font-medium text-gray-700">Motivation</label>
+                  <textarea
+                    id="motivation"
+                    rows="4"
+                    value={motivation}
+                    onChange={(e) => setMotivation(e.target.value)}
+                    className="mt-1 block w-full p-3 border border-gray-300 rounded-md shadow-sm focus:ring-purple-500 focus:border-purple-500"
+                    required
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={isSubmitting || !firebaseInitialized}
+                  className="w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-full shadow-lg transition-all hover:from-purple-700 hover:to-purple-800 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-4 focus:ring-purple-500 focus:ring-opacity-50"
+                >
+                  {isSubmitting ? 'Submitting...' : 'Submit'}
+                </button>
+              </form>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="flex items-center justify-center min-h-screen bg-gray-100 p-4 font-inter">
+      <div className="bg-white rounded-2xl shadow-xl p-8 max-w-2xl w-full">
+        <h1 className="text-3xl sm:text-4xl font-bold text-center text-gray-800 mb-4 tracking-tight">
+          Am I an Earth Angel or a Chosen One?
+        </h1>
+        <p className="text-center text-gray-500 mb-8 max-w-md mx-auto">
+          Answer these questions to see which spiritual archetype resonates most with your soul's purpose.
+        </p>
+
+        {/* Conditional rendering based on the quiz stage */}
+        {quizStage === 'intro' && (
+          <div className="text-center">
+            <p className="text-lg text-gray-700 mb-6">
+              This quiz is a journey to help you reflect on your unique qualities. It starts by exploring if you align with the general concept of being "Set Apart," then guides you to the next stage if you do.
+            </p>
+            <button
+              onClick={() => setQuizStage('setApartQuiz')}
+              className="mt-6 w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-full shadow-lg transition-all hover:from-indigo-600 hover:to-indigo-700 focus:outline-none focus:ring-4 focus:ring-indigo-500 focus:ring-opacity-50"
+            >
+              Start Your Journey
+            </button>
+          </div>
+        )}
+        
+        {quizStage === 'setApartQuiz' && renderQuiz(setApartQuestions, handleSetApartAnswer)}
+        
+        {quizStage === 'archetypeQuiz' && renderQuiz(archetypeQuestions, handleArchetypeAnswer)}
+        
+        {quizStage === 'result' && (
+          <>
+            {renderResult()}
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default App;
